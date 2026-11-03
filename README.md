@@ -14,7 +14,7 @@ and keeps the agent's context small so the agent stays sharp.
 | --- | --- |
 | **Ghostty** + `config/ghostty/config` | Fast terminal. Shift+Enter works out of the box. Splits on `cmd+d` / `cmd+shift+d`, move with `cmd+alt+arrows`, zoom a pane with `cmd+shift+enter`. |
 | **Claude Code** | Native installer. |
-| **`wt`** | `wt <name>` starts Claude in its own worktree (`.claude/worktrees/<name>`, built on `claude --worktree`), with your ignored `.env*` files copied in. `wt ls`, `wt rm <name>`. |
+| **`wt`** | `wt <name>` starts Claude in its own worktree (`.claude/worktrees/<name>`, built on `claude --worktree`), with your ignored `.env*` files copied in. `wt <name> --bg "<task>"` runs it as a background agent. `wt agents`, `wt ls`, `wt rm <name>`. |
 | **`claude-notify`** | macOS notification naming the project when an agent finishes or needs you. |
 | **`claude-guard`** | Safety hook. Blocks every `git push` (you push yourself), commits on `main`/`master`, and recursive `rm` outside the repo. |
 | **Global `CLAUDE.md`** | About 35 lines: definition of done, git and review rules, when to use sub-agents, how to grow skills, how to keep agent docs from going stale. Only installed if you don't already have one. |
@@ -49,6 +49,37 @@ You can safely run it again: anything already done is skipped.
 
 ### Why `wt` and not just `claude --worktree`?
 `wt` is a thin wrapper. On first use in a repo it adds `.worktreeinclude` (so Claude copies your ignored `.env*` files into each worktree) and hides `.claude/worktrees/` from `git status`. `wt rm` also clears the lock Claude leaves behind after it exits, but only once that Claude process has ended.
+
+## Running many agents
+
+Background agents keep working when you close the terminal, and one dashboard shows them all.
+
+```sh
+wt dark-mode --bg "add a dark mode toggle to settings"    # starts, returns at once
+wt login-bug --bg "fix the login redirect loop"
+wt agents                                                 # the dashboard
+```
+
+**Dashboard layout in Ghostty:** split the window with `cmd+d`.
+- **Left pane:** `wt agents`, the live list of every agent and its status.
+- **Right pane:** `claude attach dark-mode` to watch or talk to one agent.
+
+`←` goes back to the list, and `ctrl+z` drops you to your shell. The agent keeps running either way.
+
+| Need | Do |
+| --- | --- |
+| See all agents | `wt agents` (or `claude agents --json` for scripts) |
+| What has one done? | `claude logs <name>` |
+| Talk to one | `claude attach <name>` |
+| Pause one | `claude stop <id>` (the ID is in `wt ls`), then `claude attach <name>` later to resume |
+| Worktrees and their agents | `wt ls` |
+| Finished with it | `wt rm <name>`. For background agents this runs `claude rm`, which also refuses to throw away commits you haven't pushed. |
+
+**Good to know**
+- **Trust the repo first.** Run `claude` once in a repo and accept the trust prompt. Background agents won't start in a folder Claude doesn't trust yet.
+- **Background agents run in auto mode.** They don't stop to ask before each command, so `claude-guard` and the push `deny` rule matter most here. Give a background agent a narrow, well-described task.
+- **Use a live pane instead** when the task needs your decisions along the way.
+- **Keep tmux optional.** It's only needed over SSH. `claude --worktree <name> --tmux` gives each agent a tmux session.
 
 ## Sessions and context
 

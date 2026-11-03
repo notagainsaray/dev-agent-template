@@ -2,8 +2,10 @@
 # wt — one agent per git worktree, on top of `claude --worktree`.
 #
 #   wt <name> [claude args]   start (or resume) Claude in .claude/worktrees/<name>
-#   wt ls                     list worktrees
-#   wt rm <name>              remove it (refuses while Claude runs there or work is uncommitted)
+#   wt <name> --bg "<task>"   same, as a background agent that survives closing the terminal
+#   wt agents                 dashboard of all agents (attach, peek, stop) = `claude agents`
+#   wt ls                     worktrees and the status of their agents
+#   wt rm <name>              remove it (refuses while its agent runs or work is uncommitted)
 #
 # First use in a repo creates .worktreeinclude (.env*), so Claude copies your
 # ignored env files into each worktree, and hides .claude/worktrees/ from
@@ -16,6 +18,7 @@ die() { echo "wt: $*" >&2; exit 1; }
 git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repo"
 COMMON="$(git rev-parse --path-format=absolute --git-common-dir)"
 MAIN="$(dirname "$COMMON")" # the original checkout, even from inside a worktree
+TREES="$MAIN/.claude/worktrees"
 
 prepare_repo() {
   if [[ ! -f "$MAIN/.worktreeinclude" ]]; then
@@ -28,10 +31,34 @@ prepare_repo() {
   echo '.claude/worktrees/' >>"$exclude"
 }
 
+agents_json() { claude agents --json --all 2>/dev/null || echo '[]'; }
+
+# <name>, agents JSON on stdin. Prints "<id> <live|finished> <kind> <status>" for the
+# Claude session in this repo's worktree <name>: a live one, else the newest.
+agent_session() {
+  jq -r --arg n "$1" --arg path "$TREES/$1" --arg main "$MAIN/" '
+    [.[] | select(.cwd == $path or (.name == $n and ((.cwd // "") | startswith($main))))
+         | .live = (.status | IN("idle", "done", "exited", "stopped") | not)]
+    | sort_by(.startedAt // 0) | ((map(select(.live)) | last) // last) | select(. != null)
+    | "\(.id // .sessionId) \(if .live then "live" else "finished" end) \(.kind) \(.status)"' 2>/dev/null
+}
+
 cmd_new() { # <name> [claude args...]
   prepare_repo
   cd "$MAIN"
-  exec claude --worktree "$@"
+  exec claude --worktree "$1" --name "$1" "${@:2}"
+}
+
+cmd_ls() {
+  local dirs=("$TREES"/*/) dir name json id status
+  [[ -d "${dirs[0]}" ]] || { echo "wt: no worktrees yet; start one with: wt <name>"; return; }
+  json="$(agents_json)"
+  printf '%-22s %-26s %-10s %s\n' NAME BRANCH ID AGENT
+  for dir in "${dirs[@]}"; do
+    name="${dir%/}"; name="${name##*/}"
+    read -r id _ _ status <<<"$(agent_session "$name" <<<"$json")"
+    printf '%-22s %-26s %-10s %s\n' "$name" "$(git -C "$dir" branch --show-current)" "${id:0:8}" "$status"
+  done
 }
 
 unlock_if_stale() { # <path> — Claude locks its worktree and leaves the lock after exiting
@@ -45,16 +72,22 @@ unlock_if_stale() { # <path> — Claude locks its worktree and leaves the lock a
 }
 
 cmd_rm() { # <name>
-  local path="$MAIN/.claude/worktrees/$1"
+  local path="$TREES/$1" id state kind status
   [[ -d "$path" ]] || die "no worktree at $path"
-  unlock_if_stale "$path"
+  read -r id state kind status <<<"$(agent_session "$1" <<<"$(agents_json)")"
+  case "$kind:$state" in # background sessions: Claude removes them and their worktree safely
+    background:finished) exec claude rm "$id" ;;
+    background:live) die "its agent is $status; stop it first: claude stop $id" ;;
+  esac
+  unlock_if_stale "$path" # an open interactive Claude still holds its lock
   git worktree remove "$path"
   echo "wt: removed $path (branch kept; delete with: git branch -d worktree-$1)"
 }
 
 case "${1:-}" in
   ""|-h|--help) sed -n '1d; /^#/!q; s/^# \{0,1\}//p' "$0" ;;
-  ls)           git worktree list ;;
+  agents)       exec claude agents ;;
+  ls)           cmd_ls ;;
   rm)           [[ -n "${2:-}" ]] || die "usage: wt rm <name>"; cmd_rm "$2" ;;
   *)            cmd_new "$@" ;;
 esac
