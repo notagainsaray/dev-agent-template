@@ -2,44 +2,59 @@
 
 <!--
 Copy to docs/prd/NNNN-short-name.md. A PRD says WHAT and WHY, never HOW (that's the RFC).
-Every claim about users or the current product names its source. If you can't back it up,
-it goes under Open questions.
+Aim for one page: every section you add makes it less likely to be read.
+Every claim about users or the product names its source; anything you can't back up
+goes under Open questions.
+Sections change at different speeds: Context rarely, Milestones often. It's a living
+document, filled in as the work moves, not all upfront.
 -->
 
 | | |
 | --- | --- |
 | Status | Draft · In review · Approved · Shipped · Dropped |
 | Owner | |
+| Readers | <!-- who reads this, and what they need to decide --> |
 | Date | YYYY-MM-DD |
 | Linked | RFC-, Linear project, design |
 
-## Problem
-<!-- Who has the problem, how it shows up, and the evidence (ticket, quote, metric). -->
+## Context
+<!-- The problem, who has it, how it shows up, and the evidence (ticket, quote, metric).
+No solution here. Plain words, no codenames. -->
 
-## Who it's for
-<!-- The primary user, and anyone this deliberately doesn't serve. -->
+## Goals and non-goals
+- Goal: 
+- Non-goal: 
 
-## Goals
-- 
-
-## Non-goals
-- 
+## Usage scenarios
+<!-- Short stories of real people using it. Web and mobile differences, if any. -->
 
 ## Success metrics
-| Metric | Today | Target | How we measure it |
-| --- | --- | --- | --- |
-| | | | |
+| Metric | Today | Target | Actual (after launch) | How we measure it |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
+## Milestones
+<!-- Riskiest first. Each milestone becomes a Linear project or an RFC implementation plan. -->
+1. 
+
+## Open questions
+- [ ] 
+
+<!-- ===== Optional: keep only the sections your readers need, delete the rest ===== -->
 
 ## Requirements
 | # | Requirement | Priority | Acceptance criteria |
 | --- | --- | --- | --- |
 | R1 | | Must | |
 
-## User flows
-<!-- The main paths, step by step. Web and mobile differences, if any. -->
-
-## Risks and dependencies
+## Risks
 - 
 
-## Open questions
-- [ ] 
+## Decision log
+<!-- Newest first. Big or lasting decisions get their own ADR; link it here. -->
+| Date | Decision | Why | ADR |
+| --- | --- | --- | --- |
+| | | | |
+
+## Impact (after launch)
+<!-- Fill in the Actual column above, then: did it solve the problem in Context? What's next? -->

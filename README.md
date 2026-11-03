@@ -151,7 +151,7 @@ The rules below come from the research in [`research/`](research/):
 
 ## Roadmap
 
-- [ ] `/prd`, `/rfc` and `/linear-plan` skills, built from the first real runs of the flow above
+- [ ] `/prd`, `/rfc` and `/linear-plan` skills, built from the first real runs of the flow above. `/prd` asks who reads it first, then reviews it from several personas (engineering, design, QA, business) in parallel
 - [ ] `agent-docs-check`: flag stale lines (dates, "currently", versions, ticket IDs) in CLAUDE.md, AGENTS.md and skills
 - [ ] `/capture-skill` and `/update-skill` commands (turn a successful run into a skill; fold a fixed failure back in)
 - [ ] Web starter (project `AGENTS.md`, checks, example skill-capture flow)

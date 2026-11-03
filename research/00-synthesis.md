@@ -6,6 +6,7 @@ Sources so far:
 - **01** Ras Mic (Greg Isenberg podcast): context, skills, scale slowly.
 - **02** Charlie Automates (+ Boris Cherny's tips): sub-agents, parallel vs sequential.
 - **03** Tech With Tim: advanced features: custom agents, hooks, worktrees, headless, sessions.
+- **04** Hustle Badger: 12 PRD templates compared; PRDs are communication tools.
 
 Last updated 2026-11-03. CLI flags checked against Claude Code 2.1.317.
 
@@ -25,6 +26,7 @@ Last updated 2026-11-03. CLI flags checked against Claude Code 2.1.317.
 | 10 | Context hygiene | Stay under ~70%; models degrade as it fills | Sub-agents keep it clean | `/rewind`, `/branch`, named sessions | **README section:** `/clear` between tasks, `/compact` mid-task, `/rewind` to undo code + conversation, `-n` to name and `-r` to resume sessions, `/branch` for risky experiments. |
 | 11 | Headless / scripts | — | — | `claude -p --output-format json`, `--allowedTools` to restrict | **Later:** CI recipes (review a PR, triage a failing build) with read-only tools. |
 | 12 | Terminal | — | — | — | **Ghostty** (our call, no source covers it). Splits for panes; tmux as the portable fallback. |
+| 13 | PRD format | — | — | — | **One page by default (04).** Linear's Context / Usage scenarios / Milestones at the core, the rest optional, impact reviewed after launch. The `/prd` skill asks who reads it first and reviews it from several personas. |
 
 ## Decided
 
