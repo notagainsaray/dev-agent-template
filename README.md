@@ -1,4 +1,6 @@
-# dev-agent-template
+<h1 align="center">
+  <img src="assets/title.svg" alt="DEV AGENT TEMPLATE" width="640">
+</h1>
 
 A lean setup for web and mobile developers who work with coding agents.
 It installs a good terminal, Claude Code and a one-agent-per-worktree workflow,
