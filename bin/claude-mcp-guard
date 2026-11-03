@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Claude Code PreToolUse hook for MCP servers your team shares, such as Linear.
+# Guard another server by adding it to the matcher in settings.json: mcp__(linear|github)__.*
+#   - reads (tools named get_, list_, search_, find_, fetch_, query_ or read_ ...) run without a prompt
+#   - writes (everything else) always ask you, even if a rule allows them
+#   - writes are blocked when no one is there to ask: background agents and other
+#     auto modes (auto, bypassPermissions, dontAsk)
+# Tool names are matched by their verb, so new tools on the server are treated as writes.
+# Exit 2 blocks the call and sends the reason back to Claude.
+
+block() { echo "Blocked by claude-mcp-guard: $*" >&2; exit 2; }
+decide() { # <allow|ask> <reason>
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$2"
+  exit 0
+}
+
+command -v jq >/dev/null || block "claude-mcp-guard needs jq (brew install jq)."
+{ IFS= read -r TOOL; IFS= read -r MODE; } < <(jq -r '(.tool_name // ""), (.permission_mode // "")' 2>/dev/null)
+[[ -n "$TOOL" ]] || block "could not read the tool name."
+
+case "${TOOL##*__}" in
+  get_*|list_*|search_*|find_*|fetch_*|query_*|read_*) decide allow "read-only call to a shared tool" ;;
+esac
+case "$MODE" in
+  auto|bypassPermissions|dontAsk)
+    block "$TOOL changes data your team sees, and this session runs without the user. Report what should change instead." ;;
+esac
+decide ask "$TOOL changes data your team sees. Check it before approving."

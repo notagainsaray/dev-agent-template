@@ -7,6 +7,7 @@ cannot see in the code. Project details belong in each repo's own AGENTS.md or C
 - Run the project's "Verified commands" (in its AGENTS.md) before saying work is finished.
   If there are none, find the lint/test/build commands, run them, and propose adding them.
 - Verify the change in the running app, not just that it compiles.
+- Documents (PRD, RFC, ADR): every claim names its source, unknowns are listed, and a fresh-eyes sub-agent has reviewed it.
 
 ## Git
 - Never commit unless asked. Branch first; never commit to main.
@@ -24,12 +25,15 @@ cannot see in the code. Project details belong in each repo's own AGENTS.md or C
 - For big multi-part requests, propose the plan first: sequential, parallel, or direct.
 - Small jobs (a few tool calls): do them directly.
 
+## Shared tools (Linear, trackers)
+- Write only when the user asks, after showing the exact content. Background agents report instead.
+
 ## Skills
 - Write a skill only after the workflow has run successfully once in this session.
 - When a skill fails and the failure gets fixed, propose a skill update so it doesn't happen again.
 - Skills with side effects (deploy, release, rollback, sending anything) get
   `disable-model-invocation: true`, so they only run when the user types them.
 
-## Agent docs (CLAUDE.md, AGENTS.md, skills)
+## Agent docs (CLAUDE.md, AGENTS.md, skills; not PRDs, RFCs or ADRs)
 - Propose changes to them; never edit them silently.
 - No lines that go stale: no dates, "now"/"currently", version numbers or ticket IDs.

@@ -21,6 +21,10 @@ Change one only after you've run the new version.
 | Build / type-check | `npm run build` |
 | Run the app | `npm run dev` |
 
+## Docs
+
+PRDs in `docs/prd/`, RFCs in `docs/rfc/`, ADRs in `docs/adr/`, numbered `NNNN-short-name.md`.
+
 ## Rules the code doesn't show
 
 - <!-- e.g. "Never edit files in generated/; run `npm run codegen` instead." -->
