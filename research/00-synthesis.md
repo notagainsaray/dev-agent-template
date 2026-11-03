@@ -42,6 +42,11 @@ Last updated 2026-11-03. CLI flags checked against Claude Code 2.1.317.
   - **Fails closed:** if `jq` is missing, the guard blocks everything.
 - **Candidate:** Claude Code's sandbox (`sandbox.enabled`) instead of the best-effort `rm` check. The operating system would then enforce "no writes outside the repo", but the sandbox also limits network access. Test it on a real project before making it the default.
 
+- **C. Review and docs hygiene** (2026-11-03, own decision):
+  - Sub-agents never commit, and every commit comes after the user has seen the diff.
+  - Each project's AGENTS.md has a **Verified commands** table, which is its definition of done (`templates/AGENTS.md`).
+  - Agent docs carry no stale lines, and changes to them are proposed, not made silently.
+
 ## Agreed across all sources
 
 1. The model is good. What you put in its context decides the quality.

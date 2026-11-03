@@ -15,7 +15,8 @@ and keeps the agent's context small so the agent stays sharp.
 | **`wt`** | `wt <name>` starts Claude in its own worktree (`.claude/worktrees/<name>`, built on `claude --worktree`), with your ignored `.env*` files copied in. `wt ls`, `wt rm <name>`. |
 | **`claude-notify`** | macOS notification naming the project when an agent finishes or needs you. |
 | **`claude-guard`** | Safety hook. Blocks every `git push` (you push yourself), commits on `main`/`master`, and recursive `rm` outside the repo. |
-| **Global `CLAUDE.md`** | About 30 lines: definition of done, git rules, when to use sub-agents, how to grow skills. Only installed if you don't already have one. |
+| **Global `CLAUDE.md`** | About 35 lines: definition of done, git and review rules, when to use sub-agents, how to grow skills, how to keep agent docs from going stale. Only installed if you don't already have one. |
+| **`templates/AGENTS.md`** | Starter for each project: a **Verified commands** table (the definition of done) and the rules the code doesn't show. Copy it to your repo root and add a `CLAUDE.md` containing `@AGENTS.md`. |
 | **Settings** | No commit attribution, read-only git/gh commands and lint/test/build pre-approved, guard and notification hooks. **Merged** into your existing `settings.json`. Your values win, and a backup is made. |
 | **tmux, gh, fnm, jq** | Multiplexer, GitHub CLI, Node version manager, JSON tool. |
 
@@ -41,7 +42,7 @@ You can safely run it again: anything already done is skipped.
    Each agent gets its own checkout and branch (`worktree-feature-x`), so agents never edit each other's files.
    Install dependencies inside a new worktree before running checks. Running `wt feature-x` again resumes the same worktree.
 3. **Wait for the ping.** `claude-notify` tells you which project is done or waiting.
-4. **Review, then you push.** Read the diff or open a PR yourself. Agents can commit on a branch but never push, and parallel work is never auto-merged.
+4. **Review, then you push.** Sub-agents never commit; they hand back what changed. Any commit comes after you've seen the diff, agents never push, and parallel work is never auto-merged.
 5. **Clean up.** `wt rm feature-x` after merging. It refuses while Claude is still running there or if there's uncommitted work.
 
 ### Why `wt` and not just `claude --worktree`?
@@ -64,6 +65,8 @@ The rules below come from the research in [`research/`](research/):
 
 - **Keep `CLAUDE.md` / `AGENTS.md` short.** They load on every turn. Don't describe your stack, because the agent can read the code. Only write down what it can't see: definition of done, commands, team conventions.
 - **Delegate big reads.** Searches, long docs, logs and reviews go to sub-agents, so only the conclusion lands in your main session. Independent tasks run in parallel; dependent steps run in sequence.
+- **Keep a Verified commands list per project.** The exact lint/test/build/run commands, each one run and working. Agents use it as their definition of done.
+- **Agent docs must not go stale.** No dates, "currently", versions or ticket IDs. Agents propose doc changes instead of editing them silently.
 - **Earn your skills.** Do a workflow with the agent by hand until it succeeds. Then ask it to *"review what you just did and write a skill"*. Skills only cost their name and description until they're used, so a precise `description` matters most.
 - **Side effects are manual.** Skills that deploy, release, roll back or send anything get `disable-model-invocation: true`, so they only run when you type them.
 - **Improve skills from failures.** When a skill fails, ask the agent why, let it fix the problem, then say *"update the skill so this doesn't happen again"*.
@@ -72,6 +75,7 @@ The rules below come from the research in [`research/`](research/):
 
 ## Roadmap
 
+- [ ] `agent-docs-check`: flag stale lines (dates, "currently", versions, ticket IDs) in CLAUDE.md, AGENTS.md and skills
 - [ ] `/capture-skill` and `/update-skill` commands (turn a successful run into a skill; fold a fixed failure back in)
 - [ ] Web starter (project `AGENTS.md`, checks, example skill-capture flow)
 - [ ] Mobile starter (iOS/Android release workflow as a skill)
