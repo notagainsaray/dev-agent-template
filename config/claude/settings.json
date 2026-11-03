@@ -18,9 +18,15 @@
       "Bash(npm run lint:*)",
       "Bash(npm run test:*)",
       "Bash(npm run build:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "__BIN_DIR__/claude-guard" }] }
+    ],
     "Notification": [
       { "hooks": [{ "type": "command", "command": "__BIN_DIR__/claude-notify" }] }
     ],

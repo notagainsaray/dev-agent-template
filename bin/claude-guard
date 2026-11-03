@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Claude Code PreToolUse hook for Bash: blocks what the template's git rules forbid.
+#   - any git push (you push yourself, from a normal terminal)
+#   - git commit while on main or master
+#   - recursive rm of paths outside the repo (absolute, ~, $HOME, or containing ..)
+# Exit 2 blocks the command and sends the reason back to Claude.
+# A best-effort safety net for honest mistakes, not a sandbox: it reads the command
+# text only, so `xargs rm`, `find -delete` or paths in variables get through.
+# git push is also denied in settings.json, so it stays blocked if this hook breaks.
+
+block() { echo "Blocked by claude-guard: $*" >&2; exit 2; }
+
+command -v jq >/dev/null || block "claude-guard needs jq (brew install jq)."
+{ IFS= read -r CWD; IFS= read -r -d '' CMD; } < <(jq -r '(.cwd // ""), (.tool_input.command // "")' 2>/dev/null)
+[[ -n "$CMD" ]] || exit 0
+CWD="${CWD:-$PWD}"
+ROOT="" # repo root, looked up only when a recursive rm needs it
+
+# git, optionally followed by global options (-C dir, -c k=v, --no-pager, ...)
+GIT='(^|[;&|(]|[[:space:]])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--?[a-zA-Z-]+(=[^[:space:]]+)?))*[[:space:]]+'
+
+check_git() {
+  local re_push="${GIT}push([[:space:]]|$)" re_commit="${GIT}commit([[:space:]]|$)" branch
+  [[ "$CMD" =~ $re_push ]] && block "git push is disabled. Tell the user the branch is ready; they push it themselves."
+  [[ "$CMD" =~ $re_commit ]] || return 0
+  branch="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)"
+  if [[ "$branch" == main || "$branch" == master ]]; then
+    block "you are on $branch. Create a branch first (git switch -c <name>)."
+  fi
+}
+
+repo_root() {
+  [[ -n "$ROOT" ]] || ROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || echo "$CWD")"
+  echo "$ROOT"
+}
+
+outside_repo() { # <path>
+  local root
+  case "$1" in
+    *..*|"~"*|'$HOME'*|'${HOME}'*|/*) ;;
+    *) return 1 ;; # relative path inside the current directory
+  esac
+  [[ "$1" == /* ]] || return 0
+  root="$(repo_root)"
+  [[ "$1" != "$root" && "$1" != "$root"/* ]]
+}
+
+check_rm_segment() { # <one simple command>
+  local words w i=0 recursive=0 targets=()
+  read -ra words <<<"$1" # read never globs
+  [[ "${words[0]:-}" == sudo ]] && i=1
+  [[ "${words[i]:-}" == rm ]] || return 0
+  for w in "${words[@]:i+1}"; do
+    w="${w#[\"\']}"; w="${w%[\"\']}"
+    case "$w" in
+      --recursive|-*[rR]*) recursive=1 ;;
+      -*) ;;
+      *) targets+=("$w") ;;
+    esac
+  done
+  ((recursive)) || return 0
+  for w in ${targets[@]+"${targets[@]}"}; do
+    outside_repo "$w" && block "recursive rm outside the repo ($w)."
+  done
+  return 0
+}
+
+check_rm() {
+  [[ "$CMD" == *rm* ]] || return 0
+  local seg
+  while IFS= read -r seg; do
+    check_rm_segment "$seg"
+  done <<<"${CMD//[;&|]/$'\n'}"
+}
+
+check_git
+check_rm
+exit 0

@@ -70,9 +70,9 @@ install_claude() {
 }
 
 install_helpers() {
-  say "Helpers: wt (worktree + agent), claude-notify (desktop alerts)"
+  say "Helpers: wt (worktree + agent), claude-notify (alerts), claude-guard (safety hook)"
   local f
-  for f in wt claude-notify; do
+  for f in wt claude-notify claude-guard; do
     install_file "$REPO_DIR/bin/$f" "$BIN_DIR/$f"
     run chmod +x "$BIN_DIR/$f"
   done

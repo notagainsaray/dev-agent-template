@@ -1,64 +1,60 @@
 #!/usr/bin/env bash
-# wt — one agent per git worktree.
+# wt — one agent per git worktree, on top of `claude --worktree`.
 #
-#   wt <branch> [base]   create (or reuse) a worktree for <branch> and start Claude there
-#   wt ls                list worktrees
-#   wt rm <branch>       remove the worktree (refuses if it has uncommitted changes)
+#   wt <name> [claude args]   start (or resume) Claude in .claude/worktrees/<name>
+#   wt ls                     list worktrees
+#   wt rm <name>              remove it (refuses while Claude runs there or work is uncommitted)
 #
-# New worktrees go next to the repo as ../<repo>--<branch> and get copies of the
-# main checkout's gitignored .env* files.
+# First use in a repo creates .worktreeinclude (.env*), so Claude copies your
+# ignored env files into each worktree, and hides .claude/worktrees/ from
+# git status through .git/info/exclude (local only, nothing to commit).
 
 set -euo pipefail
 
 die() { echo "wt: $*" >&2; exit 1; }
 
 git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repo"
-# The original checkout, even when called from inside a worktree.
-MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+COMMON="$(git rev-parse --path-format=absolute --git-common-dir)"
+MAIN="$(dirname "$COMMON")" # the original checkout, even from inside a worktree
 
-worktree_of() { # <branch> — path of the worktree that has it checked out, if any
-  git worktree list --porcelain |
-    awk -v want="branch refs/heads/$1" '/^worktree /{p=substr($0,10)} $0==want{print p}'
-}
-
-copy_env_files() { # <to> — ignored files only, so they never block `git worktree remove`
-  local f
-  while IFS= read -r f; do
-    [[ -e "$1/$f" ]] || { cp "$MAIN/$f" "$1/$f" && echo "wt: copied $f"; }
-  done < <(git -C "$MAIN" ls-files --others --ignored --exclude-standard -- '.env*')
-}
-
-add_worktree() { # <branch> <path> [base]
-  if [[ -n "${3:-}" ]]; then
-    git worktree add -b "$1" "$2" "$3"
-  else # existing local branch, or a remote branch git can track
-    git worktree add "$2" "$1" 2>/dev/null || git worktree add -b "$1" "$2"
+prepare_repo() {
+  if [[ ! -f "$MAIN/.worktreeinclude" ]]; then
+    printf '.env*\n' >"$MAIN/.worktreeinclude"
+    echo "wt: created .worktreeinclude (.env*); commit it to share it with your team"
   fi
+  local exclude="$COMMON/info/exclude"
+  grep -qsxF '.claude/worktrees/' "$exclude" && return
+  mkdir -p "$COMMON/info"
+  echo '.claude/worktrees/' >>"$exclude"
 }
 
-cmd_new() { # <branch> [base]
-  local path; path="$(worktree_of "$1")"
-  if [[ -z "$path" ]]; then
-    path="$(dirname "$MAIN")/$(basename "$MAIN")--${1//\//-}"
-    add_worktree "$1" "$path" "${2:-}"
-    copy_env_files "$path"
-    echo "wt: new worktree — install dependencies there before running checks"
-  fi
-  cd "$path"
-  exec claude
+cmd_new() { # <name> [claude args...]
+  prepare_repo
+  cd "$MAIN"
+  exec claude --worktree "$@"
 }
 
-cmd_rm() { # <branch>
-  local path; path="$(worktree_of "$1")"
-  [[ -n "$path" ]] || die "no worktree has branch '$1'"
-  [[ "$path" != "$MAIN" ]] || die "'$1' is checked out in the main checkout"
+unlock_if_stale() { # <path> — Claude locks its worktree and leaves the lock after exiting
+  local lock pid
+  lock="$(git -C "$1" rev-parse --absolute-git-dir)/locked"
+  [[ -f "$lock" ]] || return 0
+  pid="$(sed -nE 's/^claude session .*\(pid ([0-9]+).*/\1/p' "$lock")"
+  [[ -n "$pid" ]] || die "locked by something other than Claude: $(cat "$lock")"
+  kill -0 "$pid" 2>/dev/null && die "Claude is still running there (pid $pid)"
+  git worktree unlock "$1"
+}
+
+cmd_rm() { # <name>
+  local path="$MAIN/.claude/worktrees/$1"
+  [[ -d "$path" ]] || die "no worktree at $path"
+  unlock_if_stale "$path"
   git worktree remove "$path"
-  echo "wt: removed $path (branch '$1' kept; delete with: git branch -d $1)"
+  echo "wt: removed $path (branch kept; delete with: git branch -d worktree-$1)"
 }
 
 case "${1:-}" in
-  ""|-h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help) sed -n '1d; /^#/!q; s/^# \{0,1\}//p' "$0" ;;
   ls)           git worktree list ;;
-  rm)           [[ -n "${2:-}" ]] || die "usage: wt rm <branch>"; cmd_rm "$2" ;;
+  rm)           [[ -n "${2:-}" ]] || die "usage: wt rm <name>"; cmd_rm "$2" ;;
   *)            cmd_new "$@" ;;
 esac
