@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Claude Code hook: shows a macOS notification naming the project that needs you.
+# Wired to the Notification (waiting for you) and Stop (finished) events in settings.json.
+
+# cwd first, so a multi-line message stays intact in the rest of the output.
+{ IFS= read -r dir; msg="$(cat)"; } < <(jq -r '(.cwd // ""), (.message // "Finished")' 2>/dev/null)
+title="Claude Code${dir:+ · ${dir##*/}}"
+
+# In the background, so the hook returns straight away.
+( osascript \
+    -e 'on run argv' \
+    -e 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Glass"' \
+    -e 'end run' \
+    "${msg:-Finished}" "$title" >/dev/null 2>&1 & )

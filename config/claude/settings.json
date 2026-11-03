@@ -1,0 +1,31 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git worktree list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(ls:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run build:*)"
+    ]
+  },
+  "hooks": {
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "__BIN_DIR__/claude-notify" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "__BIN_DIR__/claude-notify" }] }
+    ]
+  }
+}

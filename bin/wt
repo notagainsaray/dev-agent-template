@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# wt — one agent per git worktree.
+#
+#   wt <branch> [base]   create (or reuse) a worktree for <branch> and start Claude there
+#   wt ls                list worktrees
+#   wt rm <branch>       remove the worktree (refuses if it has uncommitted changes)
+#
+# New worktrees go next to the repo as ../<repo>--<branch> and get copies of the
+# main checkout's gitignored .env* files.
+
+set -euo pipefail
+
+die() { echo "wt: $*" >&2; exit 1; }
+
+git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repo"
+# The original checkout, even when called from inside a worktree.
+MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+
+worktree_of() { # <branch> — path of the worktree that has it checked out, if any
+  git worktree list --porcelain |
+    awk -v want="branch refs/heads/$1" '/^worktree /{p=substr($0,10)} $0==want{print p}'
+}
+
+copy_env_files() { # <to> — ignored files only, so they never block `git worktree remove`
+  local f
+  while IFS= read -r f; do
+    [[ -e "$1/$f" ]] || { cp "$MAIN/$f" "$1/$f" && echo "wt: copied $f"; }
+  done < <(git -C "$MAIN" ls-files --others --ignored --exclude-standard -- '.env*')
+}
+
+add_worktree() { # <branch> <path> [base]
+  if [[ -n "${3:-}" ]]; then
+    git worktree add -b "$1" "$2" "$3"
+  else # existing local branch, or a remote branch git can track
+    git worktree add "$2" "$1" 2>/dev/null || git worktree add -b "$1" "$2"
+  fi
+}
+
+cmd_new() { # <branch> [base]
+  local path; path="$(worktree_of "$1")"
+  if [[ -z "$path" ]]; then
+    path="$(dirname "$MAIN")/$(basename "$MAIN")--${1//\//-}"
+    add_worktree "$1" "$path" "${2:-}"
+    copy_env_files "$path"
+    echo "wt: new worktree — install dependencies there before running checks"
+  fi
+  cd "$path"
+  exec claude
+}
+
+cmd_rm() { # <branch>
+  local path; path="$(worktree_of "$1")"
+  [[ -n "$path" ]] || die "no worktree has branch '$1'"
+  [[ "$path" != "$MAIN" ]] || die "'$1' is checked out in the main checkout"
+  git worktree remove "$path"
+  echo "wt: removed $path (branch '$1' kept; delete with: git branch -d $1)"
+}
+
+case "${1:-}" in
+  ""|-h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ls)           git worktree list ;;
+  rm)           [[ -n "${2:-}" ]] || die "usage: wt rm <branch>"; cmd_rm "$2" ;;
+  *)            cmd_new "$@" ;;
+esac
