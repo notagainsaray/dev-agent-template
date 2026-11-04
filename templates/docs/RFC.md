@@ -41,10 +41,11 @@ waits on. Tasks with nothing to wait on can run in parallel.
 | 1 | | | — | |
 | 2 | | | 1 | |
 
-Start a task as a background agent:
+Once this RFC is merged, start every ready task as a background agent (re-run it after
+each merge to start what got unblocked):
 
 ```sh
-wt <issue-id> --bg "Implement task 1 of docs/rfc/0000-short-name.md. Read the RFC first."
+wt orch docs/rfc/0000-short-name.md
 ```
 
 ## Open questions

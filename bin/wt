@@ -6,6 +6,9 @@
 #   wt agents                 dashboard of all agents (attach, peek, stop) = `claude agents`
 #   wt ls                     worktrees and the status of their agents
 #   wt rm <name>              remove it (refuses while its agent runs or work is uncommitted)
+#   wt orch <rfc.md> [--yes]  run an RFC's implementation plan: one background agent per
+#                             ready task; re-run it after merging to start what got unblocked
+#   wt orch status <rfc.md>   the plan's tasks and their state, without starting anything
 #
 # First use in a repo creates .worktreeinclude (.env*), so Claude copies your
 # ignored env files into each worktree, and hides .claude/worktrees/ from
@@ -84,10 +87,171 @@ cmd_rm() { # <name>
   echo "wt: removed $path (branch kept; delete with: git branch -d worktree-$1)"
 }
 
+# --- wt orch: an RFC's implementation plan, one background agent per task ----------
+# A task is ready when every task it depends on is merged into the base branch, which is
+# origin's default branch: the one `claude --worktree` fetches and branches from.
+# Nothing is merged for you; you review each branch, merge it, then run wt orch again.
+
+ORCH_NUM=() ORCH_TASK=() ORCH_DONE=() ORCH_DEPS=() ORCH_NAME=() ORCH_STATE=() ORCH_MERGED=" "
+
+base_ref() { # origin's default branch, else the main checkout's branch when there is no remote
+  if git -C "$MAIN" remote get-url origin >/dev/null 2>&1; then
+    git -C "$MAIN" fetch -q origin || die "git fetch origin failed"
+    git -C "$MAIN" symbolic-ref -q --short refs/remotes/origin/HEAD ||
+      { git -C "$MAIN" remote set-head origin --auto >/dev/null &&
+        git -C "$MAIN" symbolic-ref --short refs/remotes/origin/HEAD; }
+  else
+    git -C "$MAIN" symbolic-ref --short HEAD
+  fi
+}
+
+plan_rows() { # RFC on stdin → num, task, done when, deps, linear id per task, \037-separated
+  awk -F'|' -v OFS=$'\037' '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^## / { inplan = ($0 ~ /^## Implementation plan/); hdr = 0; next }
+    !inplan || !/^[ \t]*\|/ { next }
+    !hdr { for (i = 2; i < NF; i++) col[tolower(trim($i))] = i; hdr = 1; next }
+    /^[ \t]*\|[ \t:|-]+$/ { next }
+    { n = trim($col["#"]); t = trim($col["task"])
+      if (n !~ /^[0-9]+$/ || t == "") next
+      d = $col["depends on"]; gsub(/[^0-9]+/, " ", d)             # "—" = none, "1, 2" = 1 2
+      l = ("linear" in col) ? tolower(trim($col["linear"])) : ""
+      print n, t, trim($col["done when"]), trim(d), l }'
+}
+
+load_plan() { # <slug> < RFC — fills the ORCH_* arrays. Worktree names come from the Linear id,
+  local num task check deps linear       # or from the RFC file name: 0003-dark-mode-t1
+  while IFS=$'\037' read -r num task check deps linear; do # not tab: read merges empty tabs
+    ORCH_NUM+=("$num") ORCH_TASK+=("$task") ORCH_DONE+=("$check") ORCH_DEPS+=("$deps")
+    if [[ "$linear" =~ ^[a-z]+-[0-9]+$ ]]; then ORCH_NAME+=("$linear"); else ORCH_NAME+=("$1-t$num"); fi
+  done < <(plan_rows)
+  [[ ${#ORCH_NUM[@]} -gt 0 ]] || die "no tasks in the '## Implementation plan' table"
+  check_deps
+}
+
+check_deps() { # every dependency exists, and they don't loop (tsort reports cycles on stderr)
+  local i d pairs=""
+  for i in "${!ORCH_NUM[@]}"; do
+    pairs+="${ORCH_NUM[$i]} ${ORCH_NUM[$i]}"$'\n'
+    for d in ${ORCH_DEPS[$i]}; do
+      [[ " ${ORCH_NUM[*]} " == *" $d "* ]] || die "task ${ORCH_NUM[$i]} depends on task $d, which is not in the plan"
+      [[ "$d" != "${ORCH_NUM[$i]}" ]] || die "task $d depends on itself"
+      pairs+="$d ${ORCH_NUM[$i]}"$'\n'
+    done
+  done
+  ! tsort <<<"$pairs" 2>&1 >/dev/null | grep -q cycle || die "the 'Depends on' column has a loop"
+}
+
+merged_prs() { # <base> — head branches of PRs merged into base. Squash and rebase merges
+  [[ "$1" == origin/* && "$(git -C "$MAIN" remote get-url origin)" == *github.com* ]] &&
+    command -v gh >/dev/null || return 0 # only show up here
+  (cd "$MAIN" && gh pr list --state merged --base "${1#origin/}" --limit 1000 \
+    --json headRefName --jq '.[].headRefName') ||
+    echo "wt: gh pr list failed, so squash-merged tasks will look unmerged (gh auth status?)" >&2
+}
+
+is_merged() { # <branch> <base> <merged PR branches>
+  local branch="$1" base="$2" created
+  grep -qxF "$branch" <<<"$3" && return 0
+  if git -C "$MAIN" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+    git -C "$MAIN" merge-base --is-ancestor "origin/$branch" "$base" && return 0 # pushed = has commits
+  fi
+  git -C "$MAIN" rev-parse -q --verify "refs/heads/$branch" >/dev/null || return 1
+  created="$(git -C "$MAIN" reflog show --format=%H "$branch" -- 2>/dev/null | tail -1)" # local merge:
+  [[ -n "$created" && "$(git -C "$MAIN" rev-parse "$branch")" != "$created" ]] && # skip a branch
+    git -C "$MAIN" merge-base --is-ancestor "$branch" "$base"                      # with no commits
+}
+
+task_state() { # <index> <agents json> — merged / running / finished / started / ready / waiting
+  local i="$1" name="${ORCH_NAME[$1]}" live kind status d waiting=""
+  [[ "$ORCH_MERGED" == *" ${ORCH_NUM[$i]} "* ]] && { echo merged; return; }
+  read -r _ live kind status <<<"$(agent_session "$name" <<<"$2")"
+  [[ "$live" == live ]] && { echo "running ($status)"; return; }
+  [[ "$kind:$live" == background:finished ]] && { echo "finished: review it"; return; }
+  [[ -d "$TREES/$name" ]] && { echo "started"; return; }
+  for d in ${ORCH_DEPS[$i]}; do [[ "$ORCH_MERGED" == *" $d "* ]] || waiting+="${waiting:+,}$d"; done
+  if [[ -n "$waiting" ]]; then echo "waiting on $waiting"; else echo ready; fi
+}
+
+plan_states() { # <base> — fills ORCH_MERGED first, since the other states depend on it
+  local i json prs
+  json="$(agents_json)"
+  prs="$(merged_prs "$1")"
+  for i in "${!ORCH_NUM[@]}"; do
+    is_merged "worktree-${ORCH_NAME[$i]}" "$1" "$prs" && ORCH_MERGED+="${ORCH_NUM[$i]} "
+  done
+  for i in "${!ORCH_NUM[@]}"; do ORCH_STATE[$i]="$(task_state "$i" "$json")"; done
+}
+
+print_plan() {
+  local i deps
+  printf '%-3s %-22s %-36s %-8s %s\n' '#' WORKTREE TASK DEPENDS STATE
+  for i in "${!ORCH_NUM[@]}"; do
+    deps="${ORCH_DEPS[$i]:--}"
+    printf '%-3s %-22s %-36.36s %-8s %s\n' "${ORCH_NUM[$i]}" "${ORCH_NAME[$i]}" \
+      "${ORCH_TASK[$i]}" "${deps// /,}" "${ORCH_STATE[$i]}"
+  done
+}
+
+rfc_rel() { # <file> → its path from the repo root
+  [[ -f "$1" ]] || die "no such file: $1"
+  echo "$(cd "$(dirname "$1")" && git rev-parse --show-prefix)$(basename "$1")"
+}
+
+task_prompt() { # <index> <rfc path>
+  local i="$1"
+  printf '%s\n' "Implement task ${ORCH_NUM[$i]} of $2: ${ORCH_TASK[$i]}" \
+    "Done when: ${ORCH_DONE[$i]:-see the RFC}" "" \
+    "Read $2 first; it is the spec. Do only this task: the other tasks have their own agents." \
+    "Run the Verified commands in AGENTS.md before you finish." \
+    "Do not commit or push. End with what changed and how you checked it, so the user can review the diff."
+}
+
+launch_ready() { # <rfc path> <yes?> — starts one background agent per ready task, through cmd_new
+  local rel="$1" yes="$2" i ready=() answer started=0
+  for i in "${!ORCH_NUM[@]}"; do [[ "${ORCH_STATE[$i]}" == ready ]] && ready+=("$i"); done
+  [[ ${#ready[@]} -gt 0 ]] || { echo "wt: no ready tasks to start"; return; }
+  if [[ "$yes" != yes ]]; then
+    read -r -p "Start ${#ready[@]} background agent(s)? [y/N] " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { echo "wt: nothing started"; return; }
+  fi
+  for i in "${ready[@]}"; do # the subshell keeps cmd_new's exec from ending this loop
+    if (cmd_new "${ORCH_NAME[$i]}" --bg "$(task_prompt "$i" "$rel")"); then started=$((started + 1))
+    else echo "wt: could not start ${ORCH_NAME[$i]}" >&2; fi
+  done
+  echo "wt: started $started of ${#ready[@]}. Watch them with: wt agents"
+  echo "wt: after you review and merge one, run wt orch $rel again to start what it unblocks"
+}
+
+cmd_orch() { # [status] <rfc.md> [--yes] — the plan is read from base, the version agents get
+  local mode=run yes="" file="" base rel arg
+  for arg in "$@"; do
+    case "$arg" in status) mode=status ;; --yes|-y) yes=yes ;; *) file="$arg" ;; esac
+  done
+  [[ -n "$file" ]] || die "usage: wt orch [status] <rfc.md> [--yes]"
+  command -v jq >/dev/null || die "wt orch needs jq: brew install jq"
+  base="$(base_ref)"
+  rel="$(rfc_rel "$file")"
+  if git -C "$MAIN" cat-file -e "$base:$rel" 2>/dev/null; then
+    git -C "$(dirname "$file")" diff --quiet "$base" -- "$(basename "$file")" ||
+      echo "wt: note: your local edits to $rel are ignored; the plan is read from $base" >&2
+    load_plan "$(basename "$rel" .md)" < <(git -C "$MAIN" show "$base:$rel")
+  else
+    [[ "$mode" == status ]] || die "$rel is not on $base yet. Agents branch from $base, so merge the RFC there first"
+    load_plan "$(basename "$rel" .md)" <"$file" # a draft: status only
+  fi
+  plan_states "$base"
+  echo "Plan: $rel   base: $base"
+  print_plan
+  [[ "$mode" == run ]] && launch_ready "$rel" "$yes"
+  return 0
+}
+
 case "${1:-}" in
   ""|-h|--help) sed -n '1d; /^#/!q; s/^# \{0,1\}//p' "$0" ;;
   agents)       exec claude agents ;;
   ls)           cmd_ls ;;
+  orch)         shift; cmd_orch "$@" ;;
   rm)           [[ -n "${2:-}" ]] || die "usage: wt rm <name>"; cmd_rm "$2" ;;
   *)            cmd_new "$@" ;;
 esac

@@ -14,7 +14,7 @@ and keeps the agent's context small so the agent stays sharp.
 | --- | --- |
 | **Ghostty** + `config/ghostty/config` | Fast terminal. Shift+Enter works out of the box. Splits on `cmd+d` / `cmd+shift+d`, move with `cmd+alt+arrows`, zoom a pane with `cmd+shift+enter`. |
 | **Claude Code** | Native installer. |
-| **`wt`** | `wt <name>` starts Claude in its own worktree (`.claude/worktrees/<name>`, built on `claude --worktree`), with your ignored `.env*` files copied in. `wt <name> --bg "<task>"` runs it as a background agent. `wt agents`, `wt ls`, `wt rm <name>`. |
+| **`wt`** | `wt <name>` starts Claude in its own worktree (`.claude/worktrees/<name>`, built on `claude --worktree`), with your ignored `.env*` files copied in. `wt <name> --bg "<task>"` runs it as a background agent. `wt orch <rfc>` runs an RFC's implementation plan, one background agent per ready task. `wt agents`, `wt ls`, `wt rm <name>`. |
 | **`claude-notify`** | macOS notification naming the project when an agent finishes or needs you. |
 | **`claude-guard`** | Safety hook. Blocks every `git push` (you push yourself), commits on `main`/`master`, and recursive `rm` outside the repo. |
 | **`claude-mcp-guard`** | Safety hook for MCP servers your team shares (Linear to start). Reads run freely, every write asks you first, and background agents can't write at all. |
@@ -103,11 +103,22 @@ Write the plan before the code, and agents get a reviewed spec instead of a one-
 2. **RFC: how.** Same with `templates/docs/RFC.md`. Its implementation plan splits the work into tasks, each small enough for one agent, with a "done when" check and what it waits on.
 3. **Fresh-eyes review.** Ask for a sub-agent that sees only the document, with no conversation history, to find gaps and untestable requirements. Then review it yourself and merge it like code.
 4. **Linear issues (optional).** Ask Claude to propose one issue per task. It shows you the list first; you approve before anything is created.
-5. **One background agent per task.** Tasks with nothing to wait on run in parallel:
+5. **One background agent per task: `wt orch`.** It reads the RFC's implementation plan and starts a background agent for every task with nothing to wait on:
    ```sh
-   wt eng-142 --bg "Implement ENG-142. Read the issue in Linear and docs/rfc/0003-dark-mode.md first."
+   wt orch docs/rfc/0003-dark-mode.md          # shows the plan, asks, then starts the ready tasks
+   wt orch status docs/rfc/0003-dark-mode.md   # just the plan and each task's state
    ```
-   Linear links a branch to its issue when the branch name contains the issue ID (`worktree-eng-142`).
+   ```
+   #   WORKTREE               TASK                     DEPENDS  STATE
+   1   eng-142                Theme tokens             -        running (busy)
+   2   0003-dark-mode-t2      Toggle in settings       1        waiting on 1
+   3   0003-dark-mode-t3      Persist preference       -        finished: review it
+   ```
+   - **A task is ready when everything it depends on is merged** into origin's default branch. That's the branch `claude --worktree` fetches and starts from, so a dependent task's worktree already contains the code it builds on. Squash merges count too: they're found through `gh`.
+   - **Nothing is merged for you.** Review each finished branch, commit, push and merge it yourself, then run `wt orch` again to start what that unblocked.
+   - **Merge the RFC first.** Agents read it from the default branch, so `wt orch` refuses an RFC that isn't there.
+   - **Worktree names** come from the Linear column (`ENG-142` → `eng-142`), or from the RFC file name and task number. Linear links a branch to its issue when the branch name contains the issue ID (`worktree-eng-142`).
+   - To start one task by hand: `wt eng-142 --bg "Implement ENG-142. Read the issue in Linear and docs/rfc/0003-dark-mode.md first."`
 
 ADRs (`templates/docs/ADR.md`) record one decision each, for choices too small for an RFC.
 
